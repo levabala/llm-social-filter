@@ -1,0 +1,23 @@
+{
+    "name": "llm-social-filter",
+    "module": "src/index.ts",
+    "type": "module",
+    "private": true,
+    "scripts": {
+        "tsc": "tsc --noEmit -p ./tsconfig.json"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@types/ws": "^8.18.1"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "dependencies": {
+        "@typescript/native-preview": "^7.0.0-dev.20250812.1",
+        "arktype": "^2.1.20",
+        "lowdb": "^7.0.1",
+        "telegraf": "^4.16.3",
+        "ws": "^8.18.3"
+    }
+}
