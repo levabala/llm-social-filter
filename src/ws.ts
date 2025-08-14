@@ -3,7 +3,7 @@ import WebSocket, { type RawData } from "ws";
 
 type EventType = "connected" | "ping" | "tweet" | string;
 
-export const TweetAuthor = type({
+export const TweetAuthorType = type({
     type: "'user'",
     userName: "string",
     url: "string",
@@ -56,7 +56,7 @@ export const TweetAuthor = type({
     automatedBy: "string | null",
 });
 
-export const Tweet = type({
+export const TweetType = type({
     type: "'tweet'",
     id: "string",
     url: "string",
@@ -76,7 +76,7 @@ export const Tweet = type({
     conversationId: "string | null",
     inReplyToUserId: "string | null",
     inReplyToUsername: "string | null",
-    author: TweetAuthor,
+    author: TweetAuthorType,
     extendedEntities: "Record<string, unknown>",
     card: "unknown | null",
     place: "Record<string, unknown>",
@@ -105,7 +105,7 @@ export interface TweetMessage extends BaseMessage {
     event_type: "tweet";
     rule_id?: string;
     rule_tag?: string;
-    tweets?: (typeof Tweet)["infer"][];
+    tweets?: (typeof TweetType)["infer"][];
 }
 
 interface PingMessage extends BaseMessage {
@@ -137,7 +137,7 @@ export const messageHandlerRef = {
     },
 };
 
-function handleMessage(message: string): void {
+export function handleMessage(message: string): void {
     try {
         console.log(`\nReceived message: ${message}`);
         const parsed = JSON.parse(message) as BaseMessage;
