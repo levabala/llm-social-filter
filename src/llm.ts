@@ -2,15 +2,15 @@ import { z } from 'zod';
 import { openrouter } from '@openrouter/ai-sdk-provider';
 import { generateObject } from 'ai';
 
-const MatchSchema = z.object({
+const MatchSchemaGen = z.object({
     intent_id: z.string(),
     match: z.boolean(),
-    confidence: z.number().min(0).max(1),
-    rationale: z.string().max(160),
+    confidence: z.number(),
+    rationale: z.string(),
 });
 
-const ResponseSchema = z.object({
-    matches: z.array(MatchSchema).min(1).max(50),
+const ResponseSchemaGen = z.object({
+    matches: z.array(MatchSchemaGen),
     overall_match: z.boolean(),
 });
 
@@ -28,6 +28,12 @@ function buildClassificationPrompt(post: string, intents: Intent[]): string {
     <requirement>
       <id>${i.id}</id>
       <description>${i.value}</description>
+      <positive_examples>
+        ${i.examplesPositive.map(ex => `<example>${ex}</example>`).join('\n        ')}
+      </positive_examples>
+      <negative_examples>
+        ${i.examplesNegative.map(ex => `<example>${ex}</example>`).join('\n        ')}
+      </negative_examples>
     </requirement>`,
         )
         .join('');
@@ -35,24 +41,19 @@ function buildClassificationPrompt(post: string, intents: Intent[]): string {
     return `<prompt>
   <task>
     You are a classifier. For the given post, check if it matches each of the listed requirements.
+    Return matches only for intents present in <requirements>. Keep matches length <= 50.
     For each requirement, return:
       - intent_id: the requirement ID
       - match: true or false
-      - confidence: a number between 0 and 1 that defines the accuracy of the "match" property
-      - rationale: a short explanation (max 160 characters)
+      - match_number: a number between 0 and 1 as a fractional number value of "match"
+      - rationale: a short explanation
+    
+    Use the positive and negative examples provided for each requirement to better understand what should and should not match.
+    Positive examples show content that SHOULD match the requirement.
+    Negative examples show content that should NOT match the requirement.
+    
     Also return overall_match: true if any match is true, otherwise false.
-    Respond ONLY with valid JSON matching this schema:
-    {
-      "matches": [
-        {
-          "intent_id": "string",
-          "match": true/false,
-          "confidence": 0-1,
-          "rationale": "string (max 160 chars)"
-        }
-      ],
-      "overall_match": true/false
-    }
+    Respond ONLY with valid JSON.
   </task>
   <post>
     <text>${post}</text>
@@ -64,21 +65,22 @@ function buildClassificationPrompt(post: string, intents: Intent[]): string {
 }
 
 export async function checkIfPostIsImportant(post: string, intents: Intent[]) {
-    console.log('checkIfPostIsImportant');
     const prompt = buildClassificationPrompt(post, intents);
     const system =
-        'You are a strict multi-intent classifier. Output only JSON matching the schema.';
+        'You are a strict multi-intent classifier. Output only JSON with fields: matches, overall_match.';
 
     console.log({ system, prompt });
 
     const { object, usage } = await generateObject({
         model: openrouter('google/gemini-2.5-flash'),
-        schema: ResponseSchema,
+        schema: ResponseSchemaGen,
         mode: 'json',
         system,
         prompt,
         temperature: 0.1,
+        maxOutputTokens: 2000
     });
 
-    return { result: object, usage };
+    const strict = ResponseSchemaGen.parse(object);
+    return { result: strict, usage };
 }
