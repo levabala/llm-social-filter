@@ -197,6 +197,8 @@ export function handleMessage(message: string): void {
 
             return;
         }
+
+        console.log('unknown event type', eventType);
     } catch (e) {
         if (e instanceof SyntaxError) {
             console.error(

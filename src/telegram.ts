@@ -3,7 +3,8 @@ import { JSONFilePreset } from 'lowdb/node';
 import type { Update } from 'telegraf/types';
 import { handleMessage } from './ws';
 import { callTwitterAPI } from './twitter';
-import { checkIfPostIsImportant, type Intent } from './llm';
+import { type Intent } from './llm';
+import { adminUsername } from '.';
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -11,7 +12,7 @@ if (!telegramToken) {
     throw new Error('telegram bot token is absent');
 }
 
-const dbTelegram = await JSONFilePreset('db_telegram.json', {
+export const dbTelegram = await JSONFilePreset('db_telegram.json', {
     chatIdWithLastMessageList: {} as {
         [chatId: number | string]: {
             lastMessageUser?: { id: number; text: string };
@@ -19,7 +20,18 @@ const dbTelegram = await JSONFilePreset('db_telegram.json', {
         };
     },
     intentsByUsername: {} as Record<string, Intent[]>,
+    usernameToChatId: {} as Record<string, number>,
 });
+
+if (!dbTelegram.data.chatIdWithLastMessageList) {
+    dbTelegram.data.chatIdWithLastMessageList = {};
+}
+if (!dbTelegram.data.intentsByUsername) {
+    dbTelegram.data.intentsByUsername = {};
+}
+if (!dbTelegram.data.usernameToChatId) {
+    dbTelegram.data.usernameToChatId = {};
+}
 
 const bot = new Telegraf(telegramToken, { handlerTimeout: 200_000 });
 
@@ -47,7 +59,7 @@ export function removeMessageStatusText(msg: string) {
     return before || '';
 }
 
-const sendMessage: typeof bot.telegram.sendMessage = async (
+export const sendMessage: typeof bot.telegram.sendMessage = async (
     chatId,
     textRaw: string,
     extra,
@@ -106,10 +118,32 @@ const reply = async (
 export function initTelegramBot() {
     console.log('initTelegramBot');
 
+    bot.use((ctx, next) => {
+        if (!ctx.from) {
+            console.warn('no from - reject');
+            return;
+        }
+
+        if (ctx.from.username !== adminUsername) {
+            console.warn('no from - reject');
+
+            ctx.reply('not authorized');
+
+            return;
+        }
+
+        return next();
+    });
+
     bot.start((ctx) => {
         console.log('start');
 
         dbTelegram.data.chatIdWithLastMessageList[ctx.chat.id] = {};
+
+        if (ctx.from.username) {
+            dbTelegram.data.usernameToChatId[ctx.from.username] = ctx.chat.id;
+        }
+
         reply(ctx, 'Welcome!');
 
         dbTelegram.write();
@@ -142,41 +176,8 @@ export function initTelegramBot() {
             return;
         }
 
-        const tweet = res.tweets[0];
-
-        console.log('tweet', tweet);
-
-        if (!ctx.from.username) {
-            reply(ctx, 'no username');
-            return;
-        }
-
-        const intents = dbTelegram.data.intentsByUsername[ctx.from.username];
-
-        if (!intents) {
-            reply(ctx, 'no intents for username ' + ctx.from.username);
-
-            return;
-        }
-
-        reply(ctx, 'llm is being prompted');
-
-        try {
-            const llmResponse = await checkIfPostIsImportant(
-                tweet.text,
-                intents,
-            );
-
-            console.log(
-                'llmResponse',
-                JSON.stringify(llmResponse, undefined, 2),
-            );
-
-            reply(ctx, JSON.stringify(llmResponse, undefined, 2));
-        } catch (e) {
-            console.error('failed to get the llm response', e);
-            reply(ctx, 'llm has failed');
-        }
+        (res as any).event_type = 'tweet';
+        handleMessage(JSON.stringify(res));
     });
 
     bot.on('message', async (ctx) => {
