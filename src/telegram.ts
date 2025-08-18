@@ -79,17 +79,18 @@ export function patchMessageStatusText(msg: string) {
         timeStyle: 'medium',
     });
 
-    const { dayCount: lastHourApiCalls, hourCount: lastDayApiCalls } =
+    const { hourCount: lastHourApiCalls, dayCount: lastDayApiCalls } =
         countPerDayPerHour(dbTwitterApiStats.data.lastCalls);
-    const { dayCount: lastHourWSCalls, hourCount: lastDayWSCalls } =
+    const { hourCount: lastHourWSCalls, dayCount: lastDayWSCalls } =
         countPerDayPerHour(dbTwitterWSStats.data.lastSubscriptionTweets);
-    const { dayCount: lastHourPings, hourCount: lastDayPings } =
+    const { hourCount: lastHourPings, dayCount: lastDayPings } =
         countPerDayPerHour(dbTwitterWSStats.data.lastPings);
     const { hourUsage, dayUsage } = calculateCreditUsage();
 
-    const balanceStr = dbTwitter.data.balance?.credits >= 0 
-        ? `balance: ${dbTwitter.data.balance.credits}` 
-        : 'balance: ?';
+    const balanceStr =
+        dbTwitter.data.balance?.credits >= 0
+            ? `balance: ${dbTwitter.data.balance.credits}`
+            : 'balance: ?';
 
     const creditUsageStr = `usage hour/day ${hourUsage}/${dayUsage}`;
 
@@ -99,8 +100,10 @@ export function patchMessageStatusText(msg: string) {
 
     return [
         before,
-        [nowDate, balanceStr, creditUsageStr].join(', '),
-        [statsApiStr, statsWSStr, statsPingsStr].join(', '),
+        [
+            [nowDate, balanceStr, creditUsageStr].join(', '),
+            [statsApiStr, statsWSStr, statsPingsStr].join(', '),
+        ].join('\n'),
     ].join(MESSAGE_STATUS_TEXT_SEPARATOR);
 }
 
