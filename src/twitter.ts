@@ -310,7 +310,15 @@ export const dbTwitterApiStats = await JSONFilePreset(
     },
 );
 
+export const dbTwitterBalanceStats = await JSONFilePreset(
+    getDbPath('db_twitter_balance_stats.json'),
+    {
+        lastBalanceChecks: [] as Array<{ date: number; credits: number }>,
+    },
+);
+
 const LAST_CALLS_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+const LAST_BALANCE_CHECKS_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 
 function logTwitterApiCall(path: string) {
     const arr = dbTwitterApiStats.data.lastCalls;
@@ -324,11 +332,23 @@ function logTwitterApiCall(path: string) {
     dbTwitterApiStats.write();
 }
 
+function logBalanceCheck(credits: number) {
+    const arr = dbTwitterBalanceStats.data.lastBalanceChecks;
+
+    arr.push({ date: Date.now(), credits });
+
+    while (arr[0] && arr[0].date < Date.now() - LAST_BALANCE_CHECKS_MAX_AGE) {
+        arr.shift();
+    }
+
+    dbTwitterBalanceStats.write();
+}
+
 export async function callTwitterAPI<
     PATH extends keyof API_DICTIONARY,
     RESPONSE extends API_DICTIONARY[PATH]['response']['infer'],
     QUERY extends API_DICTIONARY[PATH]['query']['infer'],
->(path: PATH, query: QUERY): Promise<RESPONSE> {
+>(path: PATH, query: QUERY, disableBalanceCheck = false): Promise<RESPONSE> {
     console.log('callTwitterAPI', path, query);
 
     logTwitterApiCall(path);
@@ -355,9 +375,11 @@ export async function callTwitterAPI<
         await middlewares[path](res);
     }
 
-    updateBalance().catch((error) => 
-        console.error('Balance update failed after API call:', error)
-    );
+    if (!disableBalanceCheck) {
+        updateBalance().catch((error) =>
+            console.error('Balance update failed after API call:', error),
+        );
+    }
 
     return res;
 }
@@ -524,8 +546,43 @@ export async function updateWebhookRule(followings: { userName: string }[]) {
 }
 
 export async function getMyAccountInfo() {
-    const res = await callTwitterAPI('oapi/my/info', {});
+    const res = await callTwitterAPI('oapi/my/info', {}, true);
     return res;
+}
+
+export function calculateCreditUsage() {
+    const checks = dbTwitterBalanceStats.data.lastBalanceChecks;
+    if (checks.length < 2) {
+        return { hourUsage: 0, dayUsage: 0 };
+    }
+
+    const now = Date.now();
+    const hour = 60 * 60 * 1000;
+    const day = 24 * hour;
+
+    const latestCheck = checks[checks.length - 1]!;
+
+    let hourCheck = null;
+    let dayCheck = null;
+    
+    for (let i = checks.length - 2; i >= 0; i--) {
+        const check = checks[i];
+        if (!check) continue;
+
+        const timeDiff = now - check.date;
+
+        if (timeDiff <= hour) {
+            hourCheck = check;
+        }
+        if (timeDiff <= day) {
+            dayCheck = check;
+        }
+    }
+
+    const hourUsage = hourCheck ? Math.max(0, hourCheck.credits - latestCheck.credits) : 0;
+    const dayUsage = dayCheck ? Math.max(0, dayCheck.credits - latestCheck.credits) : 0;
+
+    return { hourUsage, dayUsage };
 }
 
 export async function updateBalance() {
@@ -536,10 +593,11 @@ export async function updateBalance() {
             credits: accountInfo.recharge_credits,
         };
         await dbTwitter.write();
+        logBalanceCheck(accountInfo.recharge_credits);
         console.log(`Balance updated: ${accountInfo.recharge_credits} credits`);
         return accountInfo.recharge_credits;
     } catch (error) {
         console.error('Failed to update balance:', error);
-        return dbTwitter.data.balance.credits;
+        return dbTwitter.data.balance?.credits || -1;
     }
 }

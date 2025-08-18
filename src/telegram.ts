@@ -9,6 +9,7 @@ import {
     dbTwitter,
     NOT_YET_CREATED,
     dbTwitterApiStats,
+    calculateCreditUsage,
 } from './twitter';
 import { type Intent } from './llm';
 import { adminUsername, usernameToFollow, maxFollowings } from '.';
@@ -84,10 +85,13 @@ export function patchMessageStatusText(msg: string) {
         countPerDayPerHour(dbTwitterWSStats.data.lastSubscriptionTweets);
     const { dayCount: lastHourPings, hourCount: lastDayPings } =
         countPerDayPerHour(dbTwitterWSStats.data.lastPings);
+    const { hourUsage, dayUsage } = calculateCreditUsage();
 
     const balanceStr = dbTwitter.data.balance?.credits >= 0 
         ? `balance: ${dbTwitter.data.balance.credits}` 
         : 'balance: ?';
+
+    const creditUsageStr = `usage hour/day ${hourUsage}/${dayUsage}`;
 
     const statsApiStr = `api hour/day ${lastHourApiCalls}/${lastDayApiCalls}`;
     const statsWSStr = `ws hour/day ${lastHourWSCalls}/${lastDayWSCalls}`;
@@ -95,7 +99,7 @@ export function patchMessageStatusText(msg: string) {
 
     return [
         before,
-        [nowDate, balanceStr, statsApiStr, statsWSStr, statsPingsStr].join(', '),
+        [nowDate, balanceStr, creditUsageStr, statsApiStr, statsWSStr, statsPingsStr].join(', '),
     ].join(MESSAGE_STATUS_TEXT_SEPARATOR);
 }
 
