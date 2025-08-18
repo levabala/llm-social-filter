@@ -31,7 +31,10 @@
 
 ## Git Commit Guidelines
 
-- **Before committing**: Always check the last 5 commit messages with `git log --oneline -5` to match the project's commit message style and format
+- **Before committing**: 
+  1. Run `git diff` to review all changes that will be committed
+  2. Check the last 5 commit messages with `git log --oneline -5` to match the project's commit message style and format
+  3. Write a commit message that accurately reflects the changes shown in the diff
 
 ## Deployment
 
