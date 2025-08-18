@@ -12,6 +12,7 @@ import {
     twitterApiKey,
 } from './twitter';
 import { checkIfPostIsImportant } from './llm';
+import { initializeDbDirectory } from './db-utils';
 
 const usernameToFollow = process.env.USERNAME_TO_FOLLOW!;
 
@@ -51,6 +52,8 @@ function formatTweetForTelegram(tweet: (typeof TweetType)['infer']): string {
 }
 
 async function main() {
+    // Initialize database directory
+    await initializeDbDirectory();
     let followings;
     if (dbTwitter.data.followings.createdAt === NOT_YET_CREATED) {
         const res = await callTwitterAPI('twitter/user/followings', {

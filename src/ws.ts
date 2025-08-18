@@ -1,6 +1,7 @@
 import { type } from 'arktype';
 import WebSocket, { type RawData } from 'ws';
 import { JSONFilePreset } from 'lowdb/node';
+import { getDbPath } from './db-utils';
 
 type EventType = 'connected' | 'ping' | 'tweet' | string;
 
@@ -133,7 +134,7 @@ function formatEpochMs(ms: number): string {
 }
 
 export const dbTwitterWSStats = await JSONFilePreset(
-    'db_twitter_ws_stats.json',
+    getDbPath('db_twitter_ws_stats.json'),
     {
         lastSubscriptionTweets: [] as Array<{ date: number; count: number }>,
         lastPings: [] as Array<{ date: number }>,

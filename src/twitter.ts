@@ -1,5 +1,6 @@
 import { type } from 'arktype';
 import { JSONFilePreset } from 'lowdb/node';
+import { getDbPath } from './db-utils';
 import { TweetType as TweetType } from './ws';
 
 export const twitterApiKey = process.env.TWITTERAPIIO_KEY!;
@@ -294,7 +295,7 @@ const cacheGetters: {
 };
 
 export const dbTwitterApiStats = await JSONFilePreset(
-    'db_twitter_api_stats.json',
+    getDbPath('db_twitter_api_stats.json'),
     {
         lastCalls: [] as Array<{ date: number; path: string }>,
     },
@@ -350,7 +351,7 @@ export async function callTwitterAPI<
 
 export const NOT_YET_CREATED = -1;
 
-export const dbTwitter = await JSONFilePreset('db_twitter.json', {
+export const dbTwitter = await JSONFilePreset(getDbPath('db_twitter.json'), {
     followings: {
         createdAt: NOT_YET_CREATED,
         value: [] as (typeof FollowingType.infer)[],

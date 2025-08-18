@@ -1,6 +1,7 @@
 import { Context, Telegraf } from 'telegraf';
 import { JSONFilePreset } from 'lowdb/node';
 import type { BotCommand, Update } from 'telegraf/types';
+import { getDbPath } from './db-utils';
 import { dbTwitterWSStats, handleMessage } from './ws';
 import {
     callTwitterAPI,
@@ -18,7 +19,7 @@ if (!telegramToken) {
     throw new Error('telegram bot token is absent');
 }
 
-export const dbTelegram = await JSONFilePreset('db_telegram.json', {
+export const dbTelegram = await JSONFilePreset(getDbPath('db_telegram.json'), {
     chatIdWithLastMessageList: {} as {
         [chatId: number | string]: {
             lastMessageUser?: { id: number; text: string };

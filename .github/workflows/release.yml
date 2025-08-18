@@ -122,13 +122,22 @@ jobs:
                       echo "Pulling image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
                       docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-                      # Run the new container
-                      echo "Starting new container..."
-                      docker run -d \
-                        --name llm-social-filter \
-                        --restart unless-stopped \
-                        -p 3000:3000 \
-                        ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                       # Run the new container with all environment variables and data persistence
+                       echo "Starting new container..."
+                       docker run -d \
+                         --name llm-social-filter \
+                         --restart unless-stopped \
+                         -p 3000:3000 \
+                         -v llm-social-filter-data:/app/data \
+                         -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+                         -e TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+                         -e TWITTERAPIIO_KEY="${{ secrets.TWITTERAPIIO_KEY }}" \
+                         -e ADMIN_USERNAME="${{ vars.ADMIN_USERNAME }}" \
+                         -e MAX_FOLLOWINGS="${{ vars.MAX_FOLLOWINGS }}" \
+                         -e TWITTERAPIIO_FILTER_RULE_ID="${{ vars.TWITTERAPIIO_FILTER_RULE_ID }}" \
+                         -e USERNAME_TO_FOLLOW="${{ vars.USERNAME_TO_FOLLOW }}" \
+                         -e DB_ROOT_DIR="/app/data" \
+                         ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
                       # Show container status
                       echo "Container status:"
