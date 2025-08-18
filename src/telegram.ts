@@ -85,13 +85,17 @@ export function patchMessageStatusText(msg: string) {
     const { dayCount: lastHourPings, hourCount: lastDayPings } =
         countPerDayPerHour(dbTwitterWSStats.data.lastPings);
 
+    const balanceStr = dbTwitter.data.balance.credits >= 0 
+        ? `balance: ${dbTwitter.data.balance.credits}` 
+        : 'balance: ?';
+
     const statsApiStr = `api hour/day ${lastHourApiCalls}/${lastDayApiCalls}`;
     const statsWSStr = `ws hour/day ${lastHourWSCalls}/${lastDayWSCalls}`;
     const statsPingsStr = `ping hour/day ${lastHourPings}/${lastDayPings}`;
 
     return [
         before,
-        [nowDate, statsApiStr, statsWSStr, statsPingsStr].join(', '),
+        [nowDate, balanceStr, statsApiStr, statsWSStr, statsPingsStr].join(', '),
     ].join(MESSAGE_STATUS_TEXT_SEPARATOR);
 }
 

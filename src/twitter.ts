@@ -222,6 +222,13 @@ const API_DICTIONARY = {
             'msg?': 'string',
         }),
     },
+    'oapi/my/info': {
+        method: 'GET',
+        query: type({}),
+        response: type({
+            recharge_credits: 'number',
+        }),
+    },
 } as const;
 type API_DICTIONARY = typeof API_DICTIONARY;
 
@@ -247,6 +254,7 @@ const middlewares: {
     'oapi/tweet_filter/update_rule': null,
     'oapi/tweet_filter/add_rule': null,
     'oapi/tweet_filter/delete_rule': null,
+    'oapi/my/info': null,
 };
 
 const cacheGetters: {
@@ -292,6 +300,7 @@ const cacheGetters: {
     'oapi/tweet_filter/update_rule': null,
     'oapi/tweet_filter/add_rule': null,
     'oapi/tweet_filter/delete_rule': null,
+    'oapi/my/info': null,
 };
 
 export const dbTwitterApiStats = await JSONFilePreset(
@@ -346,6 +355,10 @@ export async function callTwitterAPI<
         await middlewares[path](res);
     }
 
+    updateBalance().catch((error) => 
+        console.error('Balance update failed after API call:', error)
+    );
+
     return res;
 }
 
@@ -357,6 +370,10 @@ export const dbTwitter = await JSONFilePreset(getDbPath('db_twitter.json'), {
         value: [] as (typeof FollowingType.infer)[],
     },
     tweets: {} as Record<string, (typeof TweetType)['infer']>,
+    balance: {
+        lastUpdated: NOT_YET_CREATED,
+        credits: -1,
+    },
 });
 
 function chunkFollowingsIntoRules(
@@ -496,4 +513,25 @@ export async function updateWebhookRule(followings: { userName: string }[]) {
     }
 
     return results;
+}
+
+export async function getMyAccountInfo() {
+    const res = await callTwitterAPI('oapi/my/info', {});
+    return res;
+}
+
+export async function updateBalance() {
+    try {
+        const accountInfo = await getMyAccountInfo();
+        dbTwitter.data.balance = {
+            lastUpdated: Date.now(),
+            credits: accountInfo.recharge_credits,
+        };
+        await dbTwitter.write();
+        console.log(`Balance updated: ${accountInfo.recharge_credits} credits`);
+        return accountInfo.recharge_credits;
+    } catch (error) {
+        console.error('Failed to update balance:', error);
+        return dbTwitter.data.balance.credits;
+    }
 }

@@ -10,6 +10,7 @@ import {
     dbTwitter,
     NOT_YET_CREATED,
     twitterApiKey,
+    updateBalance,
 } from './twitter';
 import { checkIfPostIsImportant } from './llm';
 import { initializeDbDirectory } from './db-utils';
@@ -174,3 +175,6 @@ async function main() {
 }
 
 await main();
+
+updateBalance();
+setInterval(updateBalance, 60 * 60 * 1000);
