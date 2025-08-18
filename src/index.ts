@@ -25,6 +25,22 @@ if (!adminUsername) {
     throw new Error('admin username is absent');
 }
 
+const filterRuleId = process.env.TWITTERAPIIO_FILTER_RULE_ID!;
+
+if (!filterRuleId) {
+    throw new Error(
+        'TWITTERAPIIO_FILTER_RULE_ID environment variable is required',
+    );
+}
+
+const maxFollowings = parseInt(process.env.MAX_FOLLOWINGS || '20', 10);
+
+if (isNaN(maxFollowings) || maxFollowings <= 0) {
+    throw new Error('MAX_FOLLOWINGS must be a positive number');
+}
+
+export { filterRuleId, usernameToFollow, maxFollowings };
+
 function formatTweetForTelegram(tweet: (typeof TweetType)['infer']): string {
     const date = new Date(tweet.createdAt).toLocaleString('en-US', {
         dateStyle: 'short',
@@ -55,15 +71,29 @@ async function main() {
             return;
         }
 
-        followings = { createdAt: Date.now(), value: res.followings };
+        const originalCount = res.followings.length;
+        followings = {
+            createdAt: Date.now(),
+            value: res.followings.slice(0, maxFollowings),
+        };
 
         dbTwitter.data.followings = followings;
         await dbTwitter.write();
-    } else {
-        followings = dbTwitter.data.followings;
-    }
 
-    console.log(followings.value.length);
+        console.log(
+            `Using ${followings.value.length} followings (limited from ${originalCount} by MAX_FOLLOWINGS=${maxFollowings})`,
+        );
+    } else {
+        const originalCount = dbTwitter.data.followings.value.length;
+        followings = {
+            ...dbTwitter.data.followings,
+            value: dbTwitter.data.followings.value.slice(0, maxFollowings),
+        };
+
+        console.log(
+            `Using ${followings.value.length} followings (limited from cached ${originalCount} by MAX_FOLLOWINGS=${maxFollowings})`,
+        );
+    }
 
     startWebsocket(twitterApiKey);
 

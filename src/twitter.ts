@@ -14,19 +14,41 @@ async function callTwitterAPIRaw({
     method,
 }: {
     path: string;
-    query?: Record<string, string>;
-    method: 'GET' | 'POST';
+    query?: Record<string, any>;
+    method: 'GET' | 'POST' | 'DELETE';
 }) {
     console.warn('------- actual call');
     const baseUrl = `https://api.twitterapi.io`;
-    const params = query ? new URLSearchParams(query).toString() : null;
-    const url = params ? `${baseUrl}/${path}?${params}` : path;
 
-    const options = {
-        method,
-        headers: { 'X-API-Key': twitterApiKey },
-        body: undefined,
-    };
+    let url: string;
+    let options: RequestInit;
+
+    if (method === 'GET') {
+        const stringQuery = query
+            ? Object.fromEntries(
+                  Object.entries(query).map(([k, v]) => [k, String(v)]),
+              )
+            : {};
+        const params = Object.keys(stringQuery).length
+            ? new URLSearchParams(stringQuery).toString()
+            : null;
+        url = params ? `${baseUrl}/${path}?${params}` : `${baseUrl}/${path}`;
+        options = {
+            method,
+            headers: { 'X-API-Key': twitterApiKey },
+        };
+    } else {
+        // POST and DELETE methods
+        url = `${baseUrl}/${path}`;
+        options = {
+            method,
+            headers: {
+                'X-API-Key': twitterApiKey,
+                'Content-Type': 'application/json',
+            },
+            body: query ? JSON.stringify(query) : undefined,
+        };
+    }
 
     try {
         const response = await fetch(url, options);
@@ -148,6 +170,57 @@ const API_DICTIONARY = {
             message: 'string',
         }),
     },
+    'oapi/tweet_filter/get_rules': {
+        method: 'GET',
+        query: type({}),
+        response: type({
+            status: '"success" | "error"',
+            'msg?': 'string',
+            'rules?': type({
+                rule_id: 'string',
+                tag: 'string',
+                value: 'string',
+                interval_seconds: 'number',
+            }).array(),
+        }),
+    },
+    'oapi/tweet_filter/update_rule': {
+        method: 'POST',
+        query: type({
+            rule_id: 'string',
+            tag: 'string',
+            value: 'string',
+            interval_seconds: 'number',
+            'is_effect?': '0 | 1',
+        }),
+        response: type({
+            status: '"success" | "error"',
+            'msg?': 'string',
+        }),
+    },
+    'oapi/tweet_filter/add_rule': {
+        method: 'POST',
+        query: type({
+            tag: 'string',
+            value: 'string',
+            interval_seconds: 'number',
+        }),
+        response: type({
+            status: '"success" | "error"',
+            'msg?': 'string',
+            'rule_id?': 'string',
+        }),
+    },
+    'oapi/tweet_filter/delete_rule': {
+        method: 'DELETE',
+        query: type({
+            rule_id: 'string',
+        }),
+        response: type({
+            status: '"success" | "error"',
+            'msg?': 'string',
+        }),
+    },
 } as const;
 type API_DICTIONARY = typeof API_DICTIONARY;
 
@@ -169,6 +242,10 @@ const middlewares: {
     'twitter/user/followings': null,
     'twitter/user/info': null,
     'twitter/user/last_tweets': null,
+    'oapi/tweet_filter/get_rules': null,
+    'oapi/tweet_filter/update_rule': null,
+    'oapi/tweet_filter/add_rule': null,
+    'oapi/tweet_filter/delete_rule': null,
 };
 
 const cacheGetters: {
@@ -210,7 +287,32 @@ const cacheGetters: {
     'twitter/user/followings': null,
     'twitter/user/info': null,
     'twitter/user/last_tweets': null,
+    'oapi/tweet_filter/get_rules': null,
+    'oapi/tweet_filter/update_rule': null,
+    'oapi/tweet_filter/add_rule': null,
+    'oapi/tweet_filter/delete_rule': null,
 };
+
+export const dbTwitterApiStats = await JSONFilePreset(
+    'db_twitter_api_stats.json',
+    {
+        lastCalls: [] as Array<{ date: number; path: string }>,
+    },
+);
+
+const LAST_CALLS_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+
+function logTwitterApiCall(path: string) {
+    const arr = dbTwitterApiStats.data.lastCalls;
+
+    arr.push({ date: Date.now(), path });
+
+    while (arr[0] && arr[0].date < Date.now() - LAST_CALLS_MAX_AGE) {
+        arr.shift();
+    }
+
+    dbTwitterApiStats.write();
+}
 
 export async function callTwitterAPI<
     PATH extends keyof API_DICTIONARY,
@@ -218,6 +320,9 @@ export async function callTwitterAPI<
     QUERY extends API_DICTIONARY[PATH]['query']['infer'],
 >(path: PATH, query: QUERY): Promise<RESPONSE> {
     console.log('callTwitterAPI', path, query);
+
+    logTwitterApiCall(path);
+
     const apiDesc = API_DICTIONARY[path];
 
     const cachedRes = await cacheGetters[path]?.(query);
@@ -252,3 +357,142 @@ export const dbTwitter = await JSONFilePreset('db_twitter.json', {
     },
     tweets: {} as Record<string, (typeof TweetType)['infer']>,
 });
+
+function chunkFollowingsIntoRules(
+    followings: { userName: string }[],
+    maxChars = 240,
+): string[] {
+    const rules: string[] = [];
+    let currentRule = '';
+
+    for (const following of followings) {
+        const userPart = `from:${following.userName}`;
+        const separator = currentRule ? ' OR ' : '';
+        const testRule = currentRule + separator + userPart;
+
+        if (testRule.length <= maxChars) {
+            currentRule = testRule;
+        } else {
+            if (currentRule) {
+                rules.push(currentRule);
+                currentRule = userPart;
+            } else {
+                rules.push(userPart);
+            }
+        }
+    }
+
+    if (currentRule) {
+        rules.push(currentRule);
+    }
+
+    return rules;
+}
+
+export async function getWebhookRules() {
+    const res = await callTwitterAPI('oapi/tweet_filter/get_rules', {});
+
+    if (res.status === 'error') {
+        throw new Error(`Failed to get webhook rules: ${res.msg}`);
+    }
+
+    return res.rules || [];
+}
+
+export async function createWebhookRule(
+    tag: string,
+    value: string,
+    intervalSeconds = 3600,
+) {
+    const res = await callTwitterAPI('oapi/tweet_filter/add_rule', {
+        tag,
+        value,
+        interval_seconds: intervalSeconds,
+    });
+
+    if (res.status === 'error') {
+        throw new Error(`Failed to create webhook rule: ${res.msg}`);
+    }
+
+    return {
+        rule_id: res.rule_id!,
+        tag,
+        value,
+        interval_seconds: intervalSeconds,
+    };
+}
+
+export async function updateWebhookRuleSingle(
+    ruleId: string,
+    tag: string,
+    value: string,
+    intervalSeconds = 3600,
+) {
+    const res = await callTwitterAPI('oapi/tweet_filter/update_rule', {
+        rule_id: ruleId,
+        tag,
+        value,
+        interval_seconds: intervalSeconds,
+        is_effect: 1,
+    });
+
+    if (res.status === 'error') {
+        throw new Error(`Failed to update webhook rule: ${res.msg}`);
+    }
+
+    return res;
+}
+
+export async function deleteWebhookRule(ruleId: string) {
+    const res = await callTwitterAPI('oapi/tweet_filter/delete_rule', {
+        rule_id: ruleId,
+    });
+
+    if (res.status === 'error') {
+        throw new Error(`Failed to delete webhook rule: ${res.msg}`);
+    }
+
+    return res;
+}
+
+export async function updateWebhookRule(followings: { userName: string }[]) {
+    const ruleChunks = chunkFollowingsIntoRules(followings);
+    const existingRules = await getWebhookRules();
+
+    const followingRules = existingRules.filter(
+        (rule) => rule.tag === 'followings',
+    );
+
+    const results = {
+        updated: 0,
+        created: 0,
+        deleted: 0,
+        total: ruleChunks.length,
+    };
+
+    for (
+        let i = 0;
+        i < Math.max(ruleChunks.length, followingRules.length);
+        i++
+    ) {
+        const chunk = ruleChunks[i];
+        const existingRule = followingRules[i];
+
+        if (chunk && existingRule) {
+            await updateWebhookRuleSingle(
+                existingRule.rule_id,
+                'followings',
+                chunk,
+            );
+            results.updated++;
+        } else if (chunk && !existingRule) {
+            await createWebhookRule('followings', chunk);
+            results.created++;
+        } else if (!chunk && existingRule) {
+            await deleteWebhookRule(existingRule.rule_id);
+            results.deleted++;
+        }
+    }
+
+    return results;
+}

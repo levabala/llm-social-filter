@@ -29,10 +29,10 @@ function buildClassificationPrompt(post: string, intents: Intent[]): string {
       <id>${i.id}</id>
       <description>${i.value}</description>
       <positive_examples>
-        ${i.examplesPositive.map(ex => `<example>${ex}</example>`).join('\n        ')}
+        ${i.examplesPositive.map((ex) => `<example>${ex}</example>`).join('\n        ')}
       </positive_examples>
       <negative_examples>
-        ${i.examplesNegative.map(ex => `<example>${ex}</example>`).join('\n        ')}
+        ${i.examplesNegative.map((ex) => `<example>${ex}</example>`).join('\n        ')}
       </negative_examples>
     </requirement>`,
         )
@@ -78,7 +78,7 @@ export async function checkIfPostIsImportant(post: string, intents: Intent[]) {
         system,
         prompt,
         temperature: 0.1,
-        maxOutputTokens: 2000
+        maxOutputTokens: 2000,
     });
 
     const strict = ResponseSchemaGen.parse(object);

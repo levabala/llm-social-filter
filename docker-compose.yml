@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+    llm-social-filter:
+        image: llm-social-filter:latest
+        container_name: llm-social-filter
+        restart: always
+        env_file:
+            - .env
+        volumes:
+            - llm_social_filter_db:/app/db
+        working_dir: /app
+        command: ['/app/app-linux-x64']
+
+volumes:
+    llm_social_filter_db:

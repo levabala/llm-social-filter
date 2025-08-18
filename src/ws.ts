@@ -1,98 +1,99 @@
-import { type } from "arktype";
-import WebSocket, { type RawData } from "ws";
+import { type } from 'arktype';
+import WebSocket, { type RawData } from 'ws';
+import { JSONFilePreset } from 'lowdb/node';
 
-type EventType = "connected" | "ping" | "tweet" | string;
+type EventType = 'connected' | 'ping' | 'tweet' | string;
 
 export const TweetAuthorType = type({
     type: "'user'",
-    userName: "string",
-    url: "string",
-    twitterUrl: "string",
-    id: "string",
-    name: "string",
-    isVerified: "boolean",
-    isBlueVerified: "boolean",
-    verifiedType: "string | null",
-    profilePicture: "string",
-    coverPicture: "string",
-    description: "string",
-    location: "string",
-    followers: "number",
-    following: "number",
-    status: "string",
-    canDm: "boolean",
-    canMediaTag: "boolean",
-    createdAt: "string",
+    userName: 'string',
+    url: 'string',
+    twitterUrl: 'string',
+    id: 'string',
+    name: 'string',
+    isVerified: 'boolean',
+    isBlueVerified: 'boolean',
+    verifiedType: 'string | null',
+    profilePicture: 'string',
+    coverPicture: 'string',
+    description: 'string',
+    location: 'string',
+    followers: 'number',
+    following: 'number',
+    status: 'string',
+    canDm: 'boolean',
+    canMediaTag: 'boolean',
+    createdAt: 'string',
     entities: {
-        description: { urls: "unknown[]" },
-        url: "Record<string, unknown>",
+        description: { urls: 'unknown[]' },
+        url: 'Record<string, unknown>',
     },
-    fastFollowersCount: "number",
-    favouritesCount: "number",
-    hasCustomTimelines: "boolean",
-    isTranslator: "boolean",
-    mediaCount: "number",
-    statusesCount: "number",
-    withheldInCountries: "string[]",
-    "affiliatesHighlightedLabel?": {
+    fastFollowersCount: 'number',
+    favouritesCount: 'number',
+    hasCustomTimelines: 'boolean',
+    isTranslator: 'boolean',
+    mediaCount: 'number',
+    statusesCount: 'number',
+    withheldInCountries: 'string[]',
+    'affiliatesHighlightedLabel?': {
         label: {
-            badge: { url: "string" },
-            description: "string",
+            badge: { url: 'string' },
+            description: 'string',
             url: {
-                url: "string",
+                url: 'string',
                 url_type: "'DeepLink' | string",
             },
             user_label_type: "'BusinessLabel' | string",
             user_label_display_type: "'Badge' | string",
         },
     },
-    possiblySensitive: "boolean",
-    pinnedTweetIds: "string[]",
+    possiblySensitive: 'boolean',
+    pinnedTweetIds: 'string[]',
     profile_bio: {
-        description: "string",
-        entities: { description: "Record<string, unknown>" },
+        description: 'string',
+        entities: { description: 'Record<string, unknown>' },
     },
-    isAutomated: "boolean",
-    automatedBy: "string | null",
+    isAutomated: 'boolean',
+    automatedBy: 'string | null',
 });
 
 export const TweetType = type({
     type: "'tweet'",
-    id: "string",
-    url: "string",
-    twitterUrl: "string",
-    text: "string",
-    source: "string",
-    retweetCount: "number",
-    replyCount: "number",
-    likeCount: "number",
-    quoteCount: "number",
-    viewCount: "number",
-    createdAt: "string",
-    lang: "string",
-    bookmarkCount: "number",
-    isReply: "boolean",
-    inReplyToId: "string | null",
-    conversationId: "string | null",
-    inReplyToUserId: "string | null",
-    inReplyToUsername: "string | null",
+    id: 'string',
+    url: 'string',
+    twitterUrl: 'string',
+    text: 'string',
+    source: 'string',
+    retweetCount: 'number',
+    replyCount: 'number',
+    likeCount: 'number',
+    quoteCount: 'number',
+    viewCount: 'number',
+    createdAt: 'string',
+    lang: 'string',
+    bookmarkCount: 'number',
+    isReply: 'boolean',
+    inReplyToId: 'string | null',
+    conversationId: 'string | null',
+    inReplyToUserId: 'string | null',
+    inReplyToUsername: 'string | null',
     author: TweetAuthorType,
-    extendedEntities: "Record<string, unknown>",
-    card: "unknown | null",
-    place: "Record<string, unknown>",
+    extendedEntities: 'Record<string, unknown>',
+    card: 'unknown | null',
+    place: 'Record<string, unknown>',
     entities: {
         user_mentions: [
             {
-                id_str: "string",
-                indices: ["number", "number"],
-                name: "string",
-                screen_name: "string",
+                id_str: 'string',
+                indices: ['number', 'number'],
+                name: 'string',
+                screen_name: 'string',
             },
         ],
     },
-    quoted_tweet: "this | null",
-    retweeted_tweet: "this | null",
-    article: "unknown | null",
+    quoted_tweet: 'this | null',
+    retweeted_tweet: 'this | null',
+    article: 'unknown | null',
 });
 
 interface BaseMessage {
@@ -102,14 +103,14 @@ interface BaseMessage {
 }
 
 export interface TweetMessage extends BaseMessage {
-    event_type: "tweet";
+    event_type: 'tweet';
     rule_id?: string;
     rule_tag?: string;
-    tweets?: (typeof TweetType)["infer"][];
+    tweets?: (typeof TweetType)['infer'][];
 }
 
 interface PingMessage extends BaseMessage {
-    event_type: "ping";
+    event_type: 'ping';
     timestamp: number;
 }
 
@@ -123,12 +124,46 @@ function formatMsDiff(ms: number): string {
 function formatEpochMs(ms: number): string {
     const d = new Date(ms);
     const yyyy = d.getFullYear();
-    const MM = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    const ss = String(d.getSeconds()).padStart(2, "0");
+    const MM = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
     return `${yyyy}-${MM}-${dd} ${hh}:${mm}:${ss}`;
+}
+
+export const dbTwitterWSStats = await JSONFilePreset(
+    'db_twitter_ws_stats.json',
+    {
+        lastSubscriptionTweets: [] as Array<{ date: number; count: number }>,
+        lastPings: [] as Array<{ date: number }>,
+    },
+);
+
+const LOG_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+
+function logWSPing() {
+    const arr = dbTwitterWSStats.data.lastPings;
+
+    arr.push({ date: Date.now() });
+
+    while (arr[0] && arr[0].date < Date.now() - LOG_MAX_AGE) {
+        arr.shift();
+    }
+
+    dbTwitterWSStats.write();
+}
+
+function logWSTweet(count: number) {
+    const arr = dbTwitterWSStats.data.lastSubscriptionTweets;
+
+    arr.push({ date: Date.now(), count });
+
+    while (arr[0] && arr[0].date < Date.now() - LOG_MAX_AGE) {
+        arr.shift();
+    }
+
+    dbTwitterWSStats.write();
 }
 
 export const messageHandlerRef = {
@@ -144,14 +179,14 @@ export function handleMessage(message: string): void {
 
         const eventType = parsed.event_type;
 
-        if (eventType === "connected") {
-            console.log("Connection successful!");
+        if (eventType === 'connected') {
+            console.log('Connection successful!');
             return;
         }
 
-        if (eventType === "ping") {
+        if (eventType === 'ping') {
             const m = parsed as PingMessage;
-            console.log("ping!");
+            console.log('ping!');
             const nowMs = Date.now();
             const currentTimeStr = formatEpochMs(nowMs);
             const ts = m.timestamp;
@@ -162,18 +197,21 @@ export function handleMessage(message: string): void {
             console.log(
                 `Time difference: ${formatMsDiff(diffMs)} (${diffMs.toFixed(0)} milliseconds)`,
             );
+
+            logWSPing();
+
             return;
         }
 
-        if (eventType === "tweet") {
+        if (eventType === 'tweet') {
             const m = parsed as TweetMessage;
-            console.log("tweet!");
+            console.log('tweet!');
 
             const ruleId = m.rule_id;
             const ruleTag = m.rule_tag;
             const tweets = Array.isArray(m.tweets) ? m.tweets : [];
             const ts =
-                typeof m.timestamp === "number" ? m.timestamp : undefined;
+                typeof m.timestamp === 'number' ? m.timestamp : undefined;
 
             console.log(`rule_id: ${ruleId}`);
             console.log(`rule_tag: ${ruleTag}`);
@@ -181,7 +219,7 @@ export function handleMessage(message: string): void {
             console.log(`Number of tweets: ${tweets.length}`);
             console.log(`timestamp: ${ts}`);
 
-            if (typeof ts === "number") {
+            if (typeof ts === 'number') {
                 const nowMs = Date.now();
                 const diffMs = nowMs - ts;
                 const currentTimeStr = formatEpochMs(nowMs);
@@ -194,6 +232,10 @@ export function handleMessage(message: string): void {
             }
 
             messageHandlerRef.current(m);
+
+            if (m.tweets?.length) {
+                logWSTweet(m.tweets.length);
+            }
 
             return;
         }
@@ -229,7 +271,7 @@ type ConnectOptions = {
 
 export class TwitterWsClient {
     private ws: WebSocket | null = null;
-    private opts: Required<Omit<ConnectOptions, "headers">> & {
+    private opts: Required<Omit<ConnectOptions, 'headers'>> & {
         headers: Record<string, string>;
     };
     private pingTimer: NodeJS.Timeout | null = null;
@@ -245,7 +287,7 @@ export class TwitterWsClient {
             reconnectDelayMs: options.reconnectDelayMs ?? 90_000,
             maxReconnectDelayMs: options.maxReconnectDelayMs ?? 90_000,
             headers: {
-                "x-api-key": options.apiKey,
+                'x-api-key': options.apiKey,
                 ...(options.headers ?? {}),
             },
         };
@@ -258,7 +300,7 @@ export class TwitterWsClient {
     stop() {
         this.clearTimers();
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.close(1000, "Client closing");
+            this.ws.close(1000, 'Client closing');
         }
         this.ws = null;
         if (this.reconnectTimer) {
@@ -274,42 +316,42 @@ export class TwitterWsClient {
             headers: this.opts.headers,
         });
 
-        this.ws.on("open", () => {
-            console.log("\nConnection established!");
+        this.ws.on('open', () => {
+            console.log('\nConnection established!');
             this.startPings();
         });
 
-        this.ws.on("message", (data: RawData) => {
-            const msg = typeof data === "string" ? data : data.toString("utf8");
+        this.ws.on('message', (data: RawData) => {
+            const msg = typeof data === 'string' ? data : data.toString('utf8');
             handleMessage(msg);
         });
 
-        this.ws.on("error", (err: Error) => {
+        this.ws.on('error', (err: Error) => {
             console.error(
-                `\nError occurred: ${err}, stack: ${err.stack ?? ""}`,
+                `\nError occurred: ${err}, stack: ${err.stack ?? ''}`,
             );
 
             // Inspect common error types/messages
-            const msg = String(err?.message ?? "");
-            if (msg.includes("ETIMEDOUT")) {
+            const msg = String(err?.message ?? '');
+            if (msg.includes('ETIMEDOUT')) {
                 console.error(
-                    "Connection timeout. Please check if server is running or network connection.",
+                    'Connection timeout. Please check if server is running or network connection.',
                 );
-            } else if (msg.includes("401") || msg.includes("403")) {
+            } else if (msg.includes('401') || msg.includes('403')) {
                 console.error(
                     `Server returned error status code (auth): ${msg}. Please check if API key and endpoint path are correct.`,
                 );
-            } else if (msg.includes("ECONNREFUSED")) {
+            } else if (msg.includes('ECONNREFUSED')) {
                 console.error(
-                    "Connection refused. Please confirm server address and port are correct.",
+                    'Connection refused. Please confirm server address and port are correct.',
                 );
             }
         });
 
-        this.ws.on("close", (code: number, reasonBuf: Buffer) => {
+        this.ws.on('close', (code: number, reasonBuf: Buffer) => {
             const reason =
                 reasonBuf && reasonBuf.length > 0
-                    ? reasonBuf.toString("utf8")
+                    ? reasonBuf.toString('utf8')
                     : undefined;
             console.log(
                 `\nConnection closed: status_code=${code}, message=${reason}`,
@@ -317,32 +359,32 @@ export class TwitterWsClient {
 
             switch (code) {
                 case 1000:
-                    console.log("Normal connection closure");
+                    console.log('Normal connection closure');
                     break;
                 case 1001:
                     console.log(
-                        "Server is shutting down or client navigating away",
+                        'Server is shutting down or client navigating away',
                     );
                     break;
                 case 1002:
-                    console.log("Protocol error");
+                    console.log('Protocol error');
                     break;
                 case 1003:
-                    console.log("Received unacceptable data type");
+                    console.log('Received unacceptable data type');
                     break;
                 case 1006:
                     console.log(
-                        "Abnormal connection closure, possibly network issues",
+                        'Abnormal connection closure, possibly network issues',
                     );
                     break;
                 case 1008:
-                    console.log("Policy violation");
+                    console.log('Policy violation');
                     break;
                 case 1011:
-                    console.log("Server internal error");
+                    console.log('Server internal error');
                     break;
                 case 1013:
-                    console.log("Server overloaded");
+                    console.log('Server overloaded');
                     break;
                 default:
                     // Other status codes possible
@@ -352,7 +394,7 @@ export class TwitterWsClient {
             this.scheduleReconnect();
         });
 
-        this.ws.on("pong", () => {
+        this.ws.on('pong', () => {
             // Got pong, clear pong timeout
             if (this.pongTimer) {
                 clearTimeout(this.pongTimer);
@@ -373,7 +415,7 @@ export class TwitterWsClient {
                 // If no pong within timeout, terminate and reconnect
                 if (this.pongTimer) clearTimeout(this.pongTimer);
                 this.pongTimer = setTimeout(() => {
-                    console.warn("Pong timeout, terminating socket...");
+                    console.warn('Pong timeout, terminating socket...');
                     try {
                         this.ws?.terminate();
                     } finally {
@@ -408,7 +450,7 @@ export class TwitterWsClient {
               );
 
         this.reconnectTimer = setTimeout(() => {
-            console.log("Reconnecting...");
+            console.log('Reconnecting...');
             this.connect();
         }, delay);
     }
@@ -426,7 +468,7 @@ export class TwitterWsClient {
 }
 
 export function startWebsocket(apiKey: string) {
-    const url = "wss://ws.twitterapi.io/twitter/tweet/websocket";
+    const url = 'wss://ws.twitterapi.io/twitter/tweet/websocket';
 
     const client = new TwitterWsClient({
         url,
@@ -439,8 +481,8 @@ export function startWebsocket(apiKey: string) {
     client.start();
 
     // Optional graceful shutdown
-    process.on("SIGINT", () => {
-        console.log("Shutting down...");
+    process.on('SIGINT', () => {
+        console.log('Shutting down...');
         client.stop();
         process.exit(0);
     });
