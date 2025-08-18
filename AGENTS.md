@@ -32,3 +32,11 @@
 ## Git Commit Guidelines
 
 - **Before committing**: Always check the last 5 commit messages with `git log --oneline -5` to match the project's commit message style and format
+
+## Deployment
+
+To deploy a new version, run these commands sequentially (NOT in parallel):
+
+1. `git add . && git commit -m "commit message"` (if there are uncommitted changes)
+2. `npm version patch`
+3. `git push --tags`
