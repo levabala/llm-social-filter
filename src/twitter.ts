@@ -376,6 +376,14 @@ export const dbTwitter = await JSONFilePreset(getDbPath('db_twitter.json'), {
     },
 });
 
+if (!dbTwitter.data.balance) {
+    dbTwitter.data.balance = {
+        lastUpdated: NOT_YET_CREATED,
+        credits: -1,
+    };
+    await dbTwitter.write();
+}
+
 function chunkFollowingsIntoRules(
     followings: { userName: string }[],
     maxChars = 240,

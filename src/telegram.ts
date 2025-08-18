@@ -85,7 +85,7 @@ export function patchMessageStatusText(msg: string) {
     const { dayCount: lastHourPings, hourCount: lastDayPings } =
         countPerDayPerHour(dbTwitterWSStats.data.lastPings);
 
-    const balanceStr = dbTwitter.data.balance.credits >= 0 
+    const balanceStr = dbTwitter.data.balance?.credits >= 0 
         ? `balance: ${dbTwitter.data.balance.credits}` 
         : 'balance: ?';
 
