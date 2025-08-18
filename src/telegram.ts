@@ -99,7 +99,8 @@ export function patchMessageStatusText(msg: string) {
 
     return [
         before,
-        [nowDate, balanceStr, creditUsageStr, statsApiStr, statsWSStr, statsPingsStr].join(', '),
+        [nowDate, balanceStr, creditUsageStr].join(', '),
+        [statsApiStr, statsWSStr, statsPingsStr].join(', '),
     ].join(MESSAGE_STATUS_TEXT_SEPARATOR);
 }
 
