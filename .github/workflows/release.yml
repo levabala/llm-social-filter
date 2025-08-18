@@ -1,0 +1,145 @@
+name: Build and Deploy Docker Image
+
+on:
+    push:
+        tags:
+            - 'v*'
+
+env:
+    REGISTRY: ghcr.io
+    IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+            attestations: write
+            id-token: write
+        outputs:
+            image-digest: ${{ steps.push.outputs.digest }}
+            image-tag: ${{ steps.meta.outputs.tags }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v5
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3.11.1
+
+            - name: Log in to Container Registry
+              uses: docker/login-action@v3.5.0
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Extract metadata (tags, labels) for Docker
+              id: meta
+              uses: docker/metadata-action@v5.8.0
+              with:
+                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  tags: |
+                      type=ref,event=tag
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=semver,pattern={{major}}
+                      type=raw,value=latest,enable={{is_default_branch}}
+
+            - name: Build and push Docker image
+              id: push
+              uses: docker/build-push-action@v6.18.0
+              with:
+                  context: .
+                  platforms: linux/amd64
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+            - name: Generate artifact attestation
+              uses: actions/attest-build-provenance@v2.4.0
+              with:
+                  subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  subject-digest: ${{ steps.push.outputs.digest }}
+                  push-to-registry: true
+
+    deploy:
+        needs: build-and-push
+        runs-on: ubuntu-latest
+        steps:
+            - name: Deploy to server via SSH
+              uses: appleboy/ssh-action@v1.2.2
+              with:
+                  host: ${{ secrets.HOST }}
+                  username: root
+                  key: ${{ secrets.SSH_KEY }}
+                  script: |
+                      # Update system packages
+                      apt-get update
+
+                      # Install Docker if not already installed
+                      if ! command -v docker &> /dev/null; then
+                        echo "Installing Docker..."
+                        # Add Docker's official GPG key
+                        apt-get install -y ca-certificates curl
+                        install -m 0755 -d /etc/apt/keyrings
+                        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+                        chmod a+r /etc/apt/keyrings/docker.asc
+                        
+                        # Add Docker repository
+                        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+                        
+                        # Install Docker
+                        apt-get update
+                        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                        
+                        # Start and enable Docker service
+                        systemctl start docker
+                        systemctl enable docker
+                        
+                        echo "Docker installed successfully"
+                      else
+                        echo "Docker is already installed"
+                      fi
+
+                      # Login to GitHub Container Registry
+                      echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+                      # Stop and remove existing container if running
+                      if docker ps -q --filter "name=llm-social-filter" | grep -q .; then
+                        echo "Stopping existing container..."
+                        docker stop llm-social-filter
+                      fi
+
+                      if docker ps -aq --filter "name=llm-social-filter" | grep -q .; then
+                        echo "Removing existing container..."
+                        docker rm llm-social-filter
+                      fi
+
+                      # Pull the latest image
+                      echo "Pulling image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+                      # Run the new container
+                      echo "Starting new container..."
+                      docker run -d \
+                        --name llm-social-filter \
+                        --restart unless-stopped \
+                        -p 3000:3000 \
+                        ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+                      # Show container status
+                      echo "Container status:"
+                      docker ps --filter "name=llm-social-filter"
+
+                      # Show container logs (last 20 lines)
+                      echo "Container logs:"
+                      docker logs --tail 20 llm-social-filter
+
+                      # Cleanup old images (keep last 3)
+                      echo "Cleaning up old images..."
+                      docker images ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}" | tail -n +2 | sort -k4 -r | tail -n +4 | awk '{print $3}' | xargs -r docker rmi
+
+                      echo "Deployment completed successfully!"
