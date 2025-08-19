@@ -21,6 +21,13 @@ export type Intent = {
     examplesNegative: string[];
 };
 
+export const IntentSchema = z.object({
+    id: z.string(),
+    value: z.string(),
+    examplesPositive: z.array(z.string()),
+    examplesNegative: z.array(z.string()),
+});
+
 function buildClassificationPrompt(post: string, intents: Intent[]): string {
     const requirementsXML = intents
         .map(
@@ -82,5 +89,37 @@ export async function checkIfPostIsImportant(post: string, intents: Intent[]) {
     });
 
     const strict = ResponseSchemaGen.parse(object);
+    return { result: strict, usage };
+}
+
+export async function updateIntentWithLLM(
+    intent: Intent,
+    userPrompt: string,
+): Promise<{ result: Intent; usage: any }> {
+    const system =
+        'You are a helpful assistant that updates classification intent objects based on user requests. Respond only with the updated JSON object.';
+
+    const prompt = `Update the provided classification intent object based on the user's request. Keep the same id unless explicitly asked to change it.
+
+Current intent object:
+${JSON.stringify(intent, null, 2)}
+
+User request: ${userPrompt}
+
+Return only the updated JSON object.`;
+
+    console.log({ system, prompt });
+
+    const { object, usage } = await generateObject({
+        model: openrouter('google/gemini-2.5-flash'),
+        schema: IntentSchema,
+        mode: 'json',
+        system,
+        prompt,
+        temperature: 0.1,
+        maxOutputTokens: 2000,
+    });
+
+    const strict = IntentSchema.parse(object);
     return { result: strict, usage };
 }

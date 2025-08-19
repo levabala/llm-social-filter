@@ -564,7 +564,7 @@ export function calculateCreditUsage() {
 
     let hourCheck = null;
     let dayCheck = null;
-    
+
     for (let i = checks.length - 2; i >= 0; i--) {
         const check = checks[i];
         if (!check) continue;
@@ -579,8 +579,12 @@ export function calculateCreditUsage() {
         }
     }
 
-    const hourUsage = hourCheck ? Math.max(0, hourCheck.credits - latestCheck.credits) : 0;
-    const dayUsage = dayCheck ? Math.max(0, dayCheck.credits - latestCheck.credits) : 0;
+    const hourUsage = hourCheck
+        ? Math.max(0, hourCheck.credits - latestCheck.credits)
+        : 0;
+    const dayUsage = dayCheck
+        ? Math.max(0, dayCheck.credits - latestCheck.credits)
+        : 0;
 
     return { hourUsage, dayUsage };
 }

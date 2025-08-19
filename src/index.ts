@@ -46,20 +46,22 @@ export { filterRuleId, usernameToFollow, maxFollowings };
 async function sendServerStartupNotification(): Promise<void> {
     const fs = await import('fs');
     const path = await import('path');
-    
+
     try {
         const packageJsonPath = path.resolve(process.cwd(), 'package.json');
         const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
         const packageJson = JSON.parse(packageJsonContent);
         const version = packageJson.version;
-        
+
         const chatId = dbTelegram.data.usernameToChatId[adminUsername];
-        
+
         if (!chatId) {
-            console.warn('No chat id for admin username - cannot send server startup notification');
+            console.warn(
+                'No chat id for admin username - cannot send server startup notification',
+            );
             return;
         }
-        
+
         const message = `server v${version} is up`;
         await sendMessage(chatId, message);
         console.log(`Server startup notification sent: ${message}`);
@@ -197,7 +199,7 @@ async function main() {
 
         processTweetsMsg(msg);
     };
-    
+
     await sendServerStartupNotification();
 }
 

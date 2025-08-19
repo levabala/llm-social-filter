@@ -1,4 +1,4 @@
-import { Context, Telegraf } from 'telegraf';
+import { Context, Telegraf, Markup, Scenes, session } from 'telegraf';
 import { JSONFilePreset } from 'lowdb/node';
 import type { BotCommand, Update } from 'telegraf/types';
 import { getDbPath } from './db-utils';
@@ -11,7 +11,7 @@ import {
     dbTwitterApiStats,
     calculateCreditUsage,
 } from './twitter';
-import { type Intent } from './llm';
+import { type Intent, updateIntentWithLLM } from './llm';
 import { adminUsername, usernameToFollow, maxFollowings } from '.';
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN!;
@@ -29,6 +29,10 @@ export const dbTelegram = await JSONFilePreset(getDbPath('db_telegram.json'), {
     },
     intentsByUsername: {} as Record<string, Intent[]>,
     usernameToChatId: {} as Record<string, number>,
+    editingIntentByUser: {} as Record<
+        string,
+        { intentId: string; page: number }
+    >,
 });
 
 if (!dbTelegram.data.chatIdWithLastMessageList) {
@@ -40,8 +44,11 @@ if (!dbTelegram.data.intentsByUsername) {
 if (!dbTelegram.data.usernameToChatId) {
     dbTelegram.data.usernameToChatId = {};
 }
+if (!dbTelegram.data.editingIntentByUser) {
+    dbTelegram.data.editingIntentByUser = {};
+}
 
-const bot = new Telegraf(telegramToken, { handlerTimeout: 200_000 });
+const bot = new Telegraf<Scenes.SceneContext>(telegramToken, { handlerTimeout: 200_000 });
 
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
@@ -68,6 +75,44 @@ function countPerDayPerHour(arr: Array<{ date: number }>) {
     }
 
     return { dayCount, hourCount };
+}
+
+const INTENTS_PER_PAGE = 5;
+
+function createIntentsListKeyboard(intents: Intent[], page: number) {
+    const startIndex = page * INTENTS_PER_PAGE;
+    const pageIntents = intents.slice(
+        startIndex,
+        startIndex + INTENTS_PER_PAGE,
+    );
+
+    const buttons = pageIntents.map((intent) => [
+        Markup.button.callback(intent.id, `intent_select:${intent.id}`),
+    ]);
+
+    const navigationButtons = [];
+    if (page > 0) {
+        navigationButtons.push(
+            Markup.button.callback('◀ Previous', `intent_list:${page - 1}`),
+        );
+    }
+    if (startIndex + INTENTS_PER_PAGE < intents.length) {
+        navigationButtons.push(
+            Markup.button.callback('Next ▶', `intent_list:${page + 1}`),
+        );
+    }
+
+    if (navigationButtons.length > 0) {
+        buttons.push(navigationButtons);
+    }
+
+    return Markup.inlineKeyboard(buttons);
+}
+
+function createIntentEditKeyboard() {
+    return Markup.inlineKeyboard([
+        [Markup.button.callback('◀ Back to List', 'intent_back')],
+    ]);
 }
 
 const MESSAGE_STATUS_TEXT_SEPARATOR = '\n---\n';
@@ -151,26 +196,247 @@ export const sendMessage: typeof bot.telegram.sendMessage = async (
 };
 
 const reply = async (
-    ctx: Context<Update.MessageUpdate>,
+    ctx: Context<Update>,
     ...replyArgs: Parameters<Context['reply']>
 ) => {
-    const msg = await ctx.reply(...replyArgs);
+    if (!ctx.chat) {
+        console.warn('no chat id - reject');
+        return;
+    }
 
-    dbTelegram.data.chatIdWithLastMessageList[ctx.chat.id] = {
-        ...dbTelegram.data.chatIdWithLastMessageList[ctx.chat.id],
-        lastMessageBot: {
-            id: msg.message_id,
-            text: msg.text,
-        },
-    };
+    const [text, extra] = replyArgs;
+    const hasInlineKeyboard = extra && 'reply_markup' in extra;
+
+    let finalText = text;
+    if (typeof text === 'string' && !hasInlineKeyboard) {
+        finalText = patchMessageStatusText(text);
+    }
+
+    const msg = await ctx.reply(finalText, extra);
+
+    if (!hasInlineKeyboard) {
+        const lastMessageBot =
+            dbTelegram.data.chatIdWithLastMessageList[ctx.chat.id]
+                ?.lastMessageBot;
+
+        if (lastMessageBot) {
+            const textNew = removeMessageStatusText(lastMessageBot.text);
+            if (lastMessageBot.text !== textNew) {
+                bot.telegram.editMessageText(
+                    ctx.chat.id,
+                    lastMessageBot.id,
+                    undefined,
+                    textNew,
+                );
+            }
+        }
+
+        dbTelegram.data.chatIdWithLastMessageList[ctx.chat.id] = {
+            ...dbTelegram.data.chatIdWithLastMessageList[ctx.chat.id],
+            lastMessageBot: {
+                id: msg.message_id,
+                text: msg.text,
+            },
+        };
+    }
 
     dbTelegram.write();
 
     return msg;
 };
 
+// Scene action constants  
+const INTENT_BACK_ACTION = 'intent_back';
+
+// INTENTS_LIST_SCENE - Shows paginated list of user intents
+const intentsListScene = new Scenes.BaseScene<Scenes.SceneContext>('INTENTS_LIST_SCENE');
+
+intentsListScene.enter((ctx) => {
+    const username = ctx.from?.username;
+    if (!username) {
+        ctx.reply('Username not found');
+        return ctx.scene.leave();
+    }
+
+    const userIntents = dbTelegram.data.intentsByUsername[username] || [];
+
+    if (userIntents.length === 0) {
+        ctx.reply('No intents found for your account.');
+        return ctx.scene.leave();
+    }
+
+    (ctx.scene.state as any).userIntents = userIntents;
+    (ctx.scene.state as any).currentPage = 0;
+    (ctx.scene.state as any).username = username;
+
+    const keyboard = createIntentsListKeyboard(userIntents, 0);
+    const intentsList = userIntents
+        .slice(0, INTENTS_PER_PAGE)
+        .map(
+            (intent: Intent, index: number) =>
+                `${index + 1}. ${intent.id}: ${intent.value.substring(0, 80)}${intent.value.length > 80 ? '...' : ''}`,
+        )
+        .join('\n');
+
+    const message = `Your intents (${userIntents.length} total):\n\n${intentsList}\n\nSelect an intent to edit:`;
+
+    ctx.reply(message, keyboard);
+});
+
+intentsListScene.action(/intent_list:(.+)/, (ctx) => {
+    const page = parseInt(ctx.match![1]!);
+    const userIntents = (ctx.scene.state as any).userIntents;
+    
+    (ctx.scene.state as any).currentPage = page;
+    
+    const keyboard = createIntentsListKeyboard(userIntents, page);
+    const startIndex = page * INTENTS_PER_PAGE;
+    const pageIntents = userIntents.slice(startIndex, startIndex + INTENTS_PER_PAGE);
+    const intentsList = pageIntents
+        .map(
+            (intent: Intent, index: number) =>
+                `${startIndex + index + 1}. ${intent.id}: ${intent.value.substring(0, 80)}${intent.value.length > 80 ? '...' : ''}`,
+        )
+        .join('\n');
+
+    const message = `Your intents (${userIntents.length} total):\n\n${intentsList}\n\nSelect an intent to edit:`;
+    ctx.editMessageText(message, keyboard);
+});
+
+intentsListScene.action(/intent_select:(.+)/, (ctx) => {
+    const intentId = ctx.match![1]!;
+    const userIntents = (ctx.scene.state as any).userIntents;
+    const intent = userIntents.find((i: Intent) => i.id === intentId);
+    
+    if (!intent) {
+        ctx.editMessageText('Intent not found');
+        return ctx.scene.leave();
+    }
+
+    (ctx.scene.state as any).selectedIntent = intent;
+    return ctx.scene.enter('INTENT_DETAIL_SCENE');
+});
+
+intentsListScene.use((ctx) => ctx.reply('Please select an intent from the list above.'));
+
+// INTENT_DETAIL_SCENE - Shows intent details and editing interface  
+const intentDetailScene = new Scenes.BaseScene<Scenes.SceneContext>('INTENT_DETAIL_SCENE');
+
+intentDetailScene.enter((ctx) => {
+    const intent = (ctx.scene.state as any).selectedIntent;
+    
+    if (!intent) {
+        ctx.reply('Intent not found');
+        return ctx.scene.leave();
+    }
+    
+    const keyboard = createIntentEditKeyboard();
+    const message =
+        `Editing intent: ${intent.id}\n\n` +
+        `Description: ${intent.value}\n\n` +
+        `Positive examples:\n${intent.examplesPositive.map((e: string) => `- ${e}`).join('\n')}\n\n` +
+        `Negative examples:\n${intent.examplesNegative.map((e: string) => `- ${e}`).join('\n')}\n\n` +
+        `Send a message describing how you want to update this intent.`;
+
+    ctx.reply(message, keyboard);
+});
+
+intentDetailScene.action(INTENT_BACK_ACTION, (ctx) => {
+    return ctx.scene.enter('INTENTS_LIST_SCENE');
+});
+
+intentDetailScene.hears(/.+/, (ctx) => {
+    (ctx.scene.state as any).updateMessage = ctx.message.text;
+    return ctx.scene.enter('INTENT_EDIT_SCENE');
+});
+
+intentDetailScene.use((ctx) => ctx.reply('Please send a text message describing how you want to update the intent, or use the back button.'));
+
+// INTENT_EDIT_SCENE - Handles LLM-powered intent updates
+const intentEditScene = new Scenes.BaseScene<Scenes.SceneContext>('INTENT_EDIT_SCENE');
+
+intentEditScene.enter(async (ctx) => {
+    const selectedIntent = (ctx.scene.state as any).selectedIntent;
+    const username = (ctx.scene.state as any).username;
+    const updateMessage = (ctx.scene.state as any).updateMessage;
+    
+    if (!selectedIntent || !username || !updateMessage) {
+        ctx.reply('Missing required data for intent update');
+        return ctx.scene.leave();
+    }
+
+    try {
+        const processingMsg = await ctx.reply('Processing your intent update...');
+        
+        const { result: updatedIntent } = await updateIntentWithLLM(selectedIntent, updateMessage);
+        
+        const userIntents = dbTelegram.data.intentsByUsername[username] || [];
+        const intentIndex = userIntents.findIndex((i: Intent) => i.id === selectedIntent.id);
+        
+        if (intentIndex >= 0) {
+            if (!dbTelegram.data.intentsByUsername[username]) {
+                dbTelegram.data.intentsByUsername[username] = [];
+            }
+            dbTelegram.data.intentsByUsername[username]![intentIndex] = updatedIntent;
+            await dbTelegram.write();
+            
+            const message = `✅ Intent updated successfully!\n\n${'```json'}\n${JSON.stringify(updatedIntent, undefined, 2)}\n${'```'}`;
+            const keyboard = createIntentEditKeyboard();
+            
+            if (ctx.chat) {
+                await ctx.telegram.editMessageText(
+                    ctx.chat.id,
+                    processingMsg.message_id,
+                    undefined,
+                    message,
+                    { ...keyboard, parse_mode: undefined }
+                );
+            }
+            
+            ctx.reply('Intent updated! Use /intents to edit another intent.');
+            return ctx.scene.leave();
+        } else {
+            if (ctx.chat) {
+                await ctx.telegram.editMessageText(
+                    ctx.chat.id,
+                    processingMsg.message_id,
+                    undefined,
+                    '❌ Error: Intent not found in your list'
+                );
+            }
+            return ctx.scene.leave();
+        }
+    } catch (error) {
+        console.error('Error updating intent:', error);
+        ctx.reply(`❌ Error updating intent: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return ctx.scene.leave();
+    }
+});
+
+intentEditScene.action(INTENT_BACK_ACTION, (ctx) => {
+    return ctx.scene.enter('INTENT_DETAIL_SCENE');
+});
+
+intentEditScene.leave((ctx) => {
+    // Clean up session data
+    delete (ctx.scene.state as any).userIntents;
+    delete (ctx.scene.state as any).selectedIntent;
+    delete (ctx.scene.state as any).updateMessage;
+    delete (ctx.scene.state as any).currentPage;
+    delete (ctx.scene.state as any).username;
+});
+
+intentEditScene.use((ctx) => ctx.reply('Processing complete. Use the back button or /intents to manage intents.'));
+
+// Create stage for scenes
+const stage = new Scenes.Stage([intentsListScene, intentDetailScene, intentEditScene]);
+
 export function initTelegramBot() {
     console.log('initTelegramBot');
+
+    // Enable scenes
+    bot.use(session());
+    bot.use(stage.middleware());
 
     bot.use((ctx, next) => {
         if (!ctx.from) {
@@ -323,6 +589,12 @@ export function initTelegramBot() {
         },
     );
 
+    registerBotCommand(
+        'intents',
+        'manage your current intents',
+        (ctx) => (ctx as any).scene.enter('INTENTS_LIST_SCENE')
+    );
+
     bot.telegram.setMyCommands(commandsList);
 
     bot.on('message', async (ctx) => {
@@ -357,12 +629,10 @@ export function initTelegramBot() {
         await ctx.leaveChat();
     });
 
+    // Global callback query handler for non-scene callbacks
     bot.on('callback_query', async (ctx) => {
-        // Explicit usage
-        await ctx.telegram.answerCbQuery(ctx.callbackQuery.id);
-
-        // Using context shortcut
         await ctx.answerCbQuery();
+        // Handle any global callback queries here if needed
     });
 
     bot.on('inline_query', async (ctx) => {
