@@ -265,7 +265,6 @@ intentsListScene.enter((ctx) => {
         return ctx.scene.leave();
     }
 
-    (ctx.scene.state as any).userIntents = userIntents;
     (ctx.scene.state as any).currentPage = 0;
     (ctx.scene.state as any).username = username;
 

@@ -8,13 +8,19 @@ import {
     removeMessageStatusText,
 } from './telegram.utils';
 import { handleMessage } from './ws';
-import type { BotCommand } from 'grammy/types';
+import type { BotCommand, InlineKeyboardMarkup } from 'grammy/types';
 import {
     callTwitterAPI,
     dbTwitter,
     NOT_YET_CREATED,
     updateWebhookRule,
 } from './twitter';
+import {
+    type Conversation,
+    type ConversationFlavor,
+    conversations,
+    createConversation,
+} from '@grammyjs/conversations';
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -50,6 +56,8 @@ if (!dbTelegram.data.editingIntentByUser) {
     dbTelegram.data.editingIntentByUser = {};
 }
 
+const messageIdToReplyMarkup: Record<string, InlineKeyboardMarkup> = {};
+
 export const sendMessage: typeof bot.api.sendMessage = async (
     chatId,
     textRaw: string,
@@ -65,11 +73,7 @@ export const sendMessage: typeof bot.api.sendMessage = async (
     if (lastMessageBot) {
         const textNew = removeMessageStatusText(lastMessageBot.text);
         if (lastMessageBot.text !== textNew) {
-            bot.api.editMessageText(
-                chatId,
-                lastMessageBot.id,
-                textNew,
-            );
+            bot.api.editMessageText(chatId, lastMessageBot.id, textNew);
         }
     }
 
@@ -80,8 +84,12 @@ export const sendMessage: typeof bot.api.sendMessage = async (
             text: msg.text,
         },
     };
+    messageIdToReplyMarkup[msg.message_id] =
+        extra?.reply_markup as InlineKeyboardMarkup;
 
     dbTelegram.write();
+
+    // setTimeout(updateMessageStatus, 1000);
 
     return msg;
 };
@@ -96,10 +104,9 @@ const reply = async (
     }
 
     const [text, extra] = replyArgs;
-    const hasInlineKeyboard = extra && 'reply_markup' in extra;
 
     let finalText = text;
-    if (typeof text === 'string' && !hasInlineKeyboard) {
+    if (typeof text === 'string') {
         finalText = patchMessageStatusText(text);
     }
 
@@ -122,13 +129,52 @@ const reply = async (
             text: msg.text,
         },
     };
+    messageIdToReplyMarkup[msg.message_id] =
+        extra?.reply_markup as InlineKeyboardMarkup;
 
     dbTelegram.write();
 
     return msg;
 };
 
-const bot = new Bot(telegramToken);
+const updateMessageStatus = async () => {
+    await Promise.all(
+        Object.entries(dbTelegram.data.chatIdWithLastMessageList).map(
+            async ([chatId, { lastMessageBot }]) => {
+                if (!lastMessageBot) {
+                    return;
+                }
+
+                const { id, text } = lastMessageBot;
+                // const replyMarkup = messageIdToReplyMarkup[id];
+
+                const textNew = patchMessageStatusText(text);
+                console.log('edit message text to update status');
+
+                if (text !== textNew) {
+                    const res = await bot.api.editMessageText(
+                        chatId,
+                        id,
+                        textNew,
+                        // { reply_markup: replyMarkup },
+                    );
+
+                    // if (res === true) {
+                    //     return true;
+                    // }
+
+                    // await bot.api.editMessageReplyMarkup(chatId, res.message_id, {
+                    //     reply_markup: replyMarkup,
+                    // });
+
+                    return res;
+                }
+            },
+        ),
+    );
+};
+
+const bot = new Bot<ConversationFlavor<Context>>(telegramToken);
 
 export function initTelegramBot() {
     bot.use((ctx, next) => {
@@ -147,6 +193,8 @@ export function initTelegramBot() {
 
         return next();
     });
+
+    bot.use(conversations());
 
     bot.command('start', (ctx) => {
         if (!ctx.from?.username) {
@@ -292,6 +340,123 @@ export function initTelegramBot() {
         },
     );
 
+    /*
+
+    menu with pagination example
+
+    const bot = new Bot(BOT_TOKEN);
+
+const data = [
+  ['a', 'b', 'c'],
+  ['d', 'e', 'f'],
+  ['g', 'h', 'i'],
+];
+
+async function getData(opts: { page: number } = { page: 1 }) { 
+  return { items: data[opts.page - 1], pagesCount: data.length };
+}
+
+const buildRange = async (pageInfo: string, ctx: Context, range: MenuRange<Context>) => {
+  console.log(pageInfo);
+  const [ currentS, nextS, selection ] = pageInfo.split('_');
+  ctx.match = `${nextS}_${nextS}_${selection}`;
+
+  const [ current, next ] = [ currentS, nextS ].map(Number);
+
+  const { items, pagesCount } = await getData({ page: current })
+
+  for (const item of items) {
+    range.submenu({ text: item, payload: `${current}_${current}_${item}`}, 'specific_item', async ctx => {
+      await ctx.editMessageText(`You have seleceted ${item}`);
+    }).row()
+  }
+
+  if (current > 1) {
+    range.submenu({ text: 'Previous page', payload: `${current}_${current - 1}_` }, 'items_page')
+  }
+
+  if (current < pagesCount) {
+    range.submenu({ text: 'Next page', payload: `${current}_${current + 1}_` }, 'items_page').row()
+  }
+
+  range.back('Back')
+}
+
+const items = new Menu<Context>('items').dynamic((ctx, range) => buildRange(ctx.has('callback_query:data') ? ctx.match as string : '1_1_', ctx, range))
+
+const itemsPage = new Menu<Context>('items_page').dynamic((ctx, range) => buildRange(ctx.has('callback_query:data') ? ctx.match as string : '1_1_', ctx, range))
+
+const specificItem = new Menu<Context>('specific_item').back('Back');
+
+items.register([itemsPage, specificItem])
+
+bot.use(items);
+bot.command('start', async ctx => {
+  await ctx.reply('Here', { reply_markup: items });
+});
+
+await bot.start();
+        
+    */
+
+    async function intentUpdateConversation(conv: Conversation, ctx: Context) {
+        await conv.log('intentUpdateConversation');
+
+        const userIntents = dbTelegram.data.intentsByUsername[adminUsername];
+
+        if (!userIntents || userIntents.length === 0) {
+            await reply(ctx, 'No intents found for your account.');
+            return conv.halt();
+        }
+
+        const intentsMenu = conv.menu().dynamic((ctx, range) => {
+            ctx.match = '';
+
+            for (const intent of userIntents) {
+                range.text(intent.id, (ctx) => {
+                    ctx.match = intent.id;
+                });
+            }
+        });
+
+        await reply(ctx, 'Please select an intent:', {
+            reply_markup: intentsMenu,
+        });
+
+        const chosenIntent = userIntents.find(
+            (intent) => intent.id === ctx.match,
+        );
+
+        conv.log('chosenIntent', chosenIntent);
+
+        if (!chosenIntent) {
+            return await conv.waitUntil(() => Boolean(chosenIntent), {
+                otherwise: (ctx) => reply(ctx, 'Please use the menu above!'),
+            });
+        }
+
+        await conv.log('chosenIntent', chosenIntent);
+
+        await reply(ctx, `Updating intent: ${chosenIntent.id}`);
+    }
+
+    const INTENT_UPDATE_CONVERSATION_ID = 'intent_update';
+
+    bot.use(
+        createConversation(
+            intentUpdateConversation,
+            INTENT_UPDATE_CONVERSATION_ID,
+        ),
+    );
+
+    registerBotCommand(
+        'intents',
+        'manage your current intents',
+        async (ctx) => {
+            await ctx.conversation.enter(INTENT_UPDATE_CONVERSATION_ID);
+        },
+    );
+
     bot.api.setMyCommands(commandsList);
 
     bot.on('message', async (ctx) => {
@@ -318,34 +483,8 @@ export function initTelegramBot() {
         dbTelegram.write();
     });
 
-    const updateMessageStatus = async () => {
-        await Promise.all(
-            Object.entries(dbTelegram.data.chatIdWithLastMessageList).map(
-                async ([chatId, { lastMessageBot }]) => {
-                    if (!lastMessageBot) {
-                        return;
-                    }
-
-                    const { id, text } = lastMessageBot;
-
-                    const textNew = patchMessageStatusText(text);
-                    console.log('edit message text to update status');
-
-                    if (text !== textNew) {
-                        const res = await bot.api.editMessageText(
-                            chatId,
-                            id,
-                            textNew,
-                        );
-
-                        return res;
-                    }
-                },
-            ),
-        );
-    };
-    setInterval(updateMessageStatus, 10000);
-    updateMessageStatus();
+    // setInterval(updateMessageStatus, 10000);
+    // updateMessageStatus();
 
     bot.start({
         onStart: () => console.log('tg bot started'),
