@@ -431,6 +431,9 @@ intentEditScene.use((ctx) => ctx.reply('Processing complete. Use the back button
 // Create stage for scenes
 const stage = new Scenes.Stage([intentsListScene, intentDetailScene, intentEditScene]);
 
+/**
+ * @deprecated
+ */
 export function initTelegramBot() {
     console.log('initTelegramBot');
 

@@ -4,7 +4,7 @@ import {
     type TweetType,
     type TweetMessage,
 } from './ws';
-import { dbTelegram, initTelegramBot, sendMessage } from './telegram';
+import { dbTelegram, initTelegramBot, sendMessage } from './telegram-grammy';
 import {
     callTwitterAPI,
     dbTwitter,
@@ -128,7 +128,7 @@ async function main() {
 
     startWebsocket(twitterApiKey);
 
-    const {} = initTelegramBot();
+    initTelegramBot();
 
     async function processTweetsMsg(msg: TweetMessage) {
         if (!msg.tweets) {
