@@ -2,15 +2,22 @@ version: '3.8'
 
 services:
     llm-social-filter:
-        image: llm-social-filter:latest
+        image: ghcr.io/levabala/llm-social-filter:latest
         container_name: llm-social-filter
-        restart: always
-        env_file:
-            - .env
+        restart: unless-stopped
+        environment:
+            - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+            - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+            - TWITTERAPIIO_KEY=${TWITTERAPIIO_KEY}
+            - ADMIN_USERNAME=${ADMIN_USERNAME}
+            - MAX_FOLLOWINGS=${MAX_FOLLOWINGS}
+            - TWITTERAPIIO_FILTER_RULE_ID=${TWITTERAPIIO_FILTER_RULE_ID}
+            - USERNAME_TO_FOLLOW=${USERNAME_TO_FOLLOW}
+            - DB_ROOT_DIR=${DB_ROOT_DIR}
         volumes:
-            - llm_social_filter_db:/app/db
-        working_dir: /app
-        command: ['/app/app-linux-x64']
+            - llm-social-filter-data:/app/data
+        ports:
+            - "3000:3000"
 
 volumes:
-    llm_social_filter_db:
+    llm-social-filter-data:

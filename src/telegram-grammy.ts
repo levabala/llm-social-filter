@@ -89,7 +89,7 @@ export const sendMessage: typeof bot.api.sendMessage = async (
 
     dbTelegram.write();
 
-    // setTimeout(updateMessageStatus, 1000);
+    setTimeout(updateMessageStatus, 10000);
 
     return msg;
 };
@@ -146,28 +146,27 @@ const updateMessageStatus = async () => {
                 }
 
                 const { id, text } = lastMessageBot;
-                // const replyMarkup = messageIdToReplyMarkup[id];
+                const replyMarkup = messageIdToReplyMarkup[id];
 
                 const textNew = patchMessageStatusText(text);
-                console.log('edit message text to update status');
 
-                if (text !== textNew) {
-                    const res = await bot.api.editMessageText(
-                        chatId,
-                        id,
-                        textNew,
-                        // { reply_markup: replyMarkup },
-                    );
-
-                    // if (res === true) {
-                    //     return true;
-                    // }
-
-                    // await bot.api.editMessageReplyMarkup(chatId, res.message_id, {
-                    //     reply_markup: replyMarkup,
-                    // });
+                if (text.trim() !== textNew.trim()) {
+                    console.log('edit message text to update status');
+                    const res = await bot.api
+                        .editMessageText(chatId, id, textNew, {
+                            reply_markup: replyMarkup,
+                        })
+                        .catch((e) => {
+                            console.error(
+                                'failed to update message status text',
+                                { text, textNew, chatId, id },
+                                e,
+                            );
+                        });
 
                     return res;
+                } else {
+                    console.log('status update skipped - same text');
                 }
             },
         ),
@@ -427,8 +426,6 @@ await bot.start();
             (intent) => intent.id === ctx.match,
         );
 
-        conv.log('chosenIntent', chosenIntent);
-
         if (!chosenIntent) {
             return await conv.waitUntil(() => Boolean(chosenIntent), {
                 otherwise: (ctx) => reply(ctx, 'Please use the menu above!'),
@@ -483,8 +480,8 @@ await bot.start();
         dbTelegram.write();
     });
 
-    // setInterval(updateMessageStatus, 10000);
-    // updateMessageStatus();
+    setInterval(updateMessageStatus, 10000);
+    updateMessageStatus();
 
     bot.start({
         onStart: () => console.log('tg bot started'),
